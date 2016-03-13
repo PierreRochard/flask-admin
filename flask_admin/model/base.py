@@ -1344,10 +1344,7 @@ class BaseModelView(BaseView, ActionsMixin):
             Return default sort order
         """
         if self.column_default_sort:
-            if isinstance(self.column_default_sort, tuple):
-                return self.column_default_sort
-            else:
-                return self.column_default_sort, False
+            return self.column_default_sort
 
         return None
 
