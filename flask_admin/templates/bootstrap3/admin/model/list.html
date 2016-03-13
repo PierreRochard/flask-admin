@@ -169,6 +169,21 @@
                 {% endfor %}
             {% endblock %}
         </tr>
+            {% if loop.last and footer_row %}
+                <tfoot>
+                {% if actions %}
+                    <td>&nbsp;</td>
+                {%- endif -%}
+                {% if admin_view.column_display_actions %}
+                    <td class="list-buttons-column"></td>
+                {%- endif -%}
+                <tr>
+                    {% for c, name in list_columns %}
+                     <td class="col-{{c}}">{{ footer_row[c] }}</td>
+                    {% endfor %}
+                </tr>
+                </tfoot>
+            {% endif %}
         {% else %}
         <tr>
             <td colspan="999">
