@@ -848,11 +848,11 @@ class ModelView(BaseModelView):
         order = super(ModelView, self)._get_default_order()
 
         if order is not None:
-            field, direction = order
 
-            attr, joins = tools.get_field_with_path(self.model, field)
-
-            return attr, joins, direction
+            attr, joins = tools.get_field_with_path(self.model, order['field'])
+            if order['absolute_value']:
+                attr = func.abs(attr)
+            return attr, joins, order['sort_desc']
 
         return None
 
