@@ -7,8 +7,8 @@ from math import ceil
 
 from werkzeug import secure_filename
 
-from flask import (request, redirect, flash, abort, json, Response,
-                   get_flashed_messages, stream_with_context)
+from flask import (current_app, request, redirect, flash, abort, json,
+                   Response, get_flashed_messages, stream_with_context)
 from jinja2 import contextfunction
 try:
     import tablib
@@ -1117,7 +1117,15 @@ class BaseModelView(BaseView, ActionsMixin):
                 Filter instance
         """
         if self.named_filter_urls:
-            name = ('%s %s' % (flt.name, as_unicode(flt.operation()))).lower()
+            operation = flt.operation()
+
+            try:
+                # get lazy string original value
+                operation = operation._args[0]
+            except AttributeError:
+                pass
+
+            name = ('%s %s' % (flt.name, as_unicode(operation))).lower()
             name = filter_char_re.sub('', name)
             name = filter_compact_re.sub('_', name)
             return name
@@ -1437,6 +1445,9 @@ class BaseModelView(BaseView, ActionsMixin):
         if isinstance(exc, ValidationError):
             flash(as_unicode(exc), 'error')
             return True
+
+        if current_app.config.get('ADMIN_RAISE_ON_VIEW_EXCEPTION'):
+            raise
 
         if self._debug:
             raise

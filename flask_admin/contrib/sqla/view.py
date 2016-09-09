@@ -4,16 +4,17 @@ import inspect
 
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm import joinedload, aliased
-from sqlalchemy.sql.expression import desc, ColumnElement
+from sqlalchemy.sql.expression import desc
 from sqlalchemy import Boolean, Table, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.expression import cast
 from sqlalchemy import Unicode
 
-from flask import flash
+from flask import current_app, flash
 
 from flask_admin._compat import string_types, text_type
 from flask_admin.babel import gettext, ngettext, lazy_gettext
+from flask_admin.contrib.sqla.tools import is_relationship
 from flask_admin.model import BaseModelView
 from flask_admin.model.form import create_editable_list_form
 from flask_admin.actions import action
@@ -271,6 +272,16 @@ class ModelView(BaseModelView):
                 form_optional_types = (Boolean, Unicode)
     """
 
+    ignore_hidden = True
+    """
+       Ignore field that starts with "_"
+
+       Example::
+
+           class MyModelView(BaseModelView):
+               ignore_hidden = False
+    """
+
     def __init__(self, model, session,
                  name=None, category=None, endpoint=None, url=None, static_folder=None,
                  menu_class_name=None, menu_icon_type=None, menu_icon_value=None):
@@ -514,17 +525,23 @@ class ModelView(BaseModelView):
 
         formatted_columns = []
         for c in only_columns:
-            column, path = tools.get_field_with_path(self.model, c)
+            try:
+                column, path = tools.get_field_with_path(self.model, c)
 
-            if path:
-                # column is a relation (InstrumentedAttribute), use full path
-                column_name = text_type(c)
-            else:
-                # column is in same table, use only model attribute name
-                if getattr(column, 'key', None) is not None:
-                    column_name = column.key
-                else:
+                if path:
+                    # column is a relation (InstrumentedAttribute), use full path
                     column_name = text_type(c)
+                else:
+                    # column is in same table, use only model attribute name
+                    if getattr(column, 'key', None) is not None:
+                        column_name = column.key
+                    else:
+                        column_name = text_type(c)
+            except AttributeError:
+                # TODO: See ticket #1299 - allow virtual columns. Probably figure out
+                # better way to handle it. For now just assume if column was not found - it
+                # is virtual and there's column formatter for it.
+                column_name = text_type(c)
 
             visible_name = self.get_column_name(column_name)
 
@@ -566,7 +583,7 @@ class ModelView(BaseModelView):
             raise Exception('Failed to find field for filter: %s' % name)
 
         # Figure out filters for related column
-        if hasattr(attr, 'property') and hasattr(attr.property, 'direction'):
+        if is_relationship(attr):
             filters = []
 
             for p in self._get_model_iterator(attr.property.mapper.class_):
@@ -597,7 +614,7 @@ class ModelView(BaseModelView):
 
             return filters
         else:
-            is_hybrid_property = isinstance(attr, ColumnElement)
+            is_hybrid_property = tools.is_hybrid_property(self.model, name)
             if is_hybrid_property:
                 column = attr
             else:
@@ -658,6 +675,7 @@ class ModelView(BaseModelView):
                                    only=self.form_columns,
                                    exclude=self.form_excluded_columns,
                                    field_args=self.form_args,
+                                   ignore_hidden=self.ignore_hidden,
                                    extra_fields=self.form_extra_fields)
 
         if self.inline_models:
@@ -782,9 +800,15 @@ class ModelView(BaseModelView):
             column = sort_field if alias is None else getattr(alias, sort_field.key)
 
             if sort_desc:
-                query = query.order_by(desc(column))
+                if isinstance(column, tuple):
+                    query = query.order_by(*map(desc, column))
+                else:
+	                query = query.order_by(desc(column))
             else:
-                query = query.order_by(column)
+                if isinstance(column, tuple):
+                    query = query.order_by(*column)
+                else:
+	                query = query.order_by(column)
 
         return query, joins
 
@@ -996,7 +1020,10 @@ class ModelView(BaseModelView):
     # Error handler
     def handle_view_exception(self, exc):
         if isinstance(exc, IntegrityError):
-            flash(gettext('Integrity error. %(message)s', message=text_type(exc)), 'error')
+            if current_app.config.get('ADMIN_RAISE_ON_VIEW_EXCEPTION'):
+                raise
+            else:
+                flash(gettext('Integrity error. %(message)s', message=text_type(exc)), 'error')
             return True
 
         return super(ModelView, self).handle_view_exception(exc)
