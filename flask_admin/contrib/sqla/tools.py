@@ -1,4 +1,5 @@
 from sqlalchemy import tuple_, or_, and_, inspect
+from sqlalchemy.ext.declarative.clsregistry import _class_resolver
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.associationproxy import ASSOCIATION_PROXY
 from sqlalchemy.sql.operators import eq
@@ -190,7 +191,20 @@ def get_hybrid_properties(model):
 
 
 def is_hybrid_property(model, attr_name):
-    return attr_name in get_hybrid_properties(model)
+    if isinstance(attr_name, string_types):
+        names = attr_name.split('.')
+        last_model = model
+        for i in range(len(names)-1):
+            attr = getattr(last_model, names[i])
+            if is_association_proxy(attr):
+                attr = attr.remote_attr
+            last_model = attr.property.argument
+            if isinstance(last_model, _class_resolver):
+                last_model = model._decl_class_registry[last_model.arg]
+        last_name = names[-1]
+        return last_name in get_hybrid_properties(last_model)
+    else:
+        return attr_name.name in get_hybrid_properties(model)
 
 
 def is_relationship(attr):
@@ -199,9 +213,3 @@ def is_relationship(attr):
 
 def is_association_proxy(attr):
     return hasattr(attr, 'extension_type') and attr.extension_type == ASSOCIATION_PROXY
-
-
-def get_association_proxy_column_name(attr):
-    # TODO find a better way to get the name
-    name, = [key for key, value in inspect(attr.owning_class).all_orm_descriptors.items() if value is attr]
-    return name
